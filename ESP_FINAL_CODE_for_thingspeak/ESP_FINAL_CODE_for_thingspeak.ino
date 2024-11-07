@@ -1,9 +1,9 @@
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 
-const char* ssid = "MasterShifu";
-const char* password = "Tweety@Birdy";
-const char* apiKey = "27DD5GVDLU2XBYDT";  // Write API Key
+const char* ssid = "IUB_BUS_Shuttle";
+const char* password = "fabber@Bus";
+const char* apiKey = "7LNV7Z12NVHQIGW6";  // Write API Key
 const char* server = "api.thingspeak.com";
 int interval = 15000; // Data sending interval in ms
 
@@ -64,24 +64,27 @@ void connectToWiFi() {
 }
 
 bool processAndSendData(String data) {
-  float Temperature, pH;
-  int Tds, Turbidity;
+  float Temperature, pH, DO, ORP;
+  int Tds, Turbidity, EC;
 
   // Parse the data received from Arduino
-  int result = sscanf(data.c_str(), "T:%f|P:%f|TDS:%d|TUR:%d", &Temperature, &pH, &Tds, &Turbidity);
+  int result = sscanf(data.c_str(), "T:%f|P:%f|TD:%d|TU:%d|D:%f|O:%f|E:%d", &Temperature, &pH, &Tds, &Turbidity,&DO,&ORP,&EC);
 
   // Check if parsing was successful
-  if (result != 4) {
+  if (result != 7) {
     return false;  // Return false if parsing fails
   }
 
   // Send data to ThingSpeak
   if (client.connect(server, 80)) {
     String postStr = apiKey;
-    postStr += "&field1="; postStr += String(Temperature);
-    postStr += "&field2="; postStr += String(pH);
-    postStr += "&field3="; postStr += String(Tds);
-    postStr += "&field4="; postStr += String(Turbidity);
+    postStr += "&field1="; postStr += String(pH);
+    postStr += "&field2="; postStr += String(Turbidity);
+    postStr += "&field3="; postStr += String(DO);
+    postStr += "&field4="; postStr += String(EC);
+     postStr += "&field5="; postStr += String(Temperature);
+    postStr += "&field6="; postStr += String(ORP);
+    postStr += "&field7="; postStr += String(Tds);    
     postStr += "\r\n\r\n";
 
     client.print("POST /update HTTP/1.1\n");
