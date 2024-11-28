@@ -18,7 +18,7 @@ void loop()
         TurbiditySensorVoltage += ((float)analogRead(TurbiditySensorPin)/1023)*5;
     }
     TurbiditySensorVoltage = TurbiditySensorVoltage/800;
-    TurbiditySensorVoltage = round_to_dp(TurbiditySensorVoltage,2);
+    TurbiditySensorVoltage = round_to_dpFor_Turb(TurbiditySensorVoltage,2);
     if(TurbiditySensorVoltage < 2.5){
       TurbidityInNtu = 3000;
     }else{
@@ -29,9 +29,9 @@ void loop()
     delay(10);
 }
  
-float round_to_dp( float in_value, int decimal_place )
+float round_to_dpFor_Turb( float in_value, int decimal_place )
 {
-  float multiplier = powf( 10.0f, decimal_place );
-  in_value = roundf( in_value * multiplier ) / multiplier;
+  float multiplierForTurbidity = powf( 10.0f, decimal_place );
+  in_value = roundf( in_value * multiplierForTurbidity ) / multiplierForTurbidity;
   return in_value;
 }

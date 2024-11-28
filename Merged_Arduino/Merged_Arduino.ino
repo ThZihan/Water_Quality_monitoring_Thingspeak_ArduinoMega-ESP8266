@@ -2,7 +2,8 @@
 #include "DFRobot_PH.h"
 #include "DFRobot_ECPRO.h"
 #include "DFRobot_ORP_PRO.h"
-
+#include <Wire.h> 
+ 
 // Pin Definitions
 #define TDS_PIN A0
 #define PH_PIN A1
@@ -10,6 +11,9 @@
 #define EC_PIN A3
 #define TE_PIN A4
 #define ORP_PIN A5
+int TurbiditySensorPin = A0;
+float TurbiditySensorVoltage;
+float TurbidityInNtu;
 
 // Sensor Objects
 GravityTDS gravityTds;
@@ -182,21 +186,39 @@ void performSensorOperation() {
     // ORP Measurement
   unsigned int ADC_voltage = ((unsigned long)analogRead(ORP_PIN) * 5000 + 1024 / 2) / 1024;
   orpValue = ORP.getORP(ADC_voltage);
-  
+
+//Turbidity data read
+  getTurbidityData();
  // Create Data Packet (include ORP value)
   String dataPacket = "T:" + String(temperature, 2) +
                       "|P:" + String(phValue, 2) +
                       "|TD:" + String(tdsValue, 0) +
+                      "|TU:" + String(TurbidityInNtu) +
                       "|D:" + String(doValue, 2) +
-                      "|E:" + String(conductivity, 2) +
                       "|O:" + String(orpValue, 2) + // Add ORP value
+                      "|E:" + String(conductivity, 2) +
+                      
                       "\n";
   
   // Send Data
   Serial3.print(dataPacket);
   Serial.println(dataPacket);
 }
-
+void getTurbidityData(){
+   TurbiditySensorVoltage = 0;
+    for(int i=0; i<800; i++)
+    {
+        TurbiditySensorVoltage += ((float)analogRead(TurbiditySensorPin)/1023)*5;
+    }
+    TurbiditySensorVoltage = TurbiditySensorVoltage/800;
+    TurbiditySensorVoltage = round_to_dpFor_Turb(TurbiditySensorVoltage,2);
+    if(TurbiditySensorVoltage < 2.5){
+      TurbidityInNtu = 3000;
+    }else{
+      TurbidityInNtu = -1120.4*square(TurbiditySensorVoltage)+5742.3*TurbiditySensorVoltage-4353.8; 
+    }
+    delay(10);
+}
 // DO Sensor Reading Function (from original DO code)
 int16_t readDO(uint32_t voltage_mv, uint8_t temperature_c) {
   #if TWO_POINT_CALIBRATION == 0
@@ -249,3 +271,10 @@ const uint16_t DO_Table[41] = {
     9080, 8900, 8730, 8570, 8410, 8250, 8110, 7960, 7820, 7690,
     7560, 7430, 7300, 7180, 7070, 6950, 6840, 6730, 6630, 6530, 6410
 };
+
+float round_to_dpFor_Turb( float in_value, int decimal_place )
+{
+  float multiplierForTurbidity = powf( 10.0f, decimal_place );
+  in_value = roundf( in_value * multiplierForTurbidity ) / multiplierForTurbidity;
+  return in_value;
+}
