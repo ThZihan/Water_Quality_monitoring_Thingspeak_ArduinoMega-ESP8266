@@ -1,6 +1,6 @@
 #include "GravityTDS.h"
  
-#define TdsSensorPin A1
+#define TdsSensorPin A8
 GravityTDS gravityTds;
  
 float temperature = 25,tdsValue = 0;
