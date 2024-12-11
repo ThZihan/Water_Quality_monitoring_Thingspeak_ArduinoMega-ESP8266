@@ -1,4 +1,4 @@
-#define PIN_ORP A1
+#define PIN_ORP A2
 #define ADC_RES 1024
 #define V_REF 5000
 

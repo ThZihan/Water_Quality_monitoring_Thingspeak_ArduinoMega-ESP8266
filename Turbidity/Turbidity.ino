@@ -1,6 +1,6 @@
 #include <Wire.h> 
  
-int TurbiditySensorPin = A0;
+int TurbiditySensorPin = A5;
 float TurbiditySensorVoltage;
 float TurbidityInNtu;
  

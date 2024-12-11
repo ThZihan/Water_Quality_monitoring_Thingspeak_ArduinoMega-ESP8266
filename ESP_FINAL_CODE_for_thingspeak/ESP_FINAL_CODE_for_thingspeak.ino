@@ -1,8 +1,8 @@
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 
-const char* ssid = "IUB_BUS_Shuttle";
-const char* password = "fabber@Bus";
+const char* ssid = "Xihan";
+const char* password = "121121121";
 const char* apiKey = "7LNV7Z12NVHQIGW6";  // Write API Key
 const char* server = "api.thingspeak.com";
 int interval = 15000; // Data sending interval in ms

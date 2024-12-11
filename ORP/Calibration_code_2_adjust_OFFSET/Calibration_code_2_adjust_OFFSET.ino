@@ -1,12 +1,12 @@
 #include "DFRobot_ORP_PRO.h"
 
-#define PIN_ORP A1
+#define PIN_ORP A2
 #define ADC_RES 1024
 #define V_REF 5000
 
 unsigned int ADC_voltage;
 
-DFRobot_ORP_PRO ORP(-9);//set reference voltage mv
+DFRobot_ORP_PRO ORP(-14);//set reference voltage mv
 
 void setup() {
   Serial.begin(115200);

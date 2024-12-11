@@ -1,280 +1,192 @@
-#include "GravityTDS.h"
-#include "DFRobot_PH.h"
-#include "DFRobot_ECPRO.h"
+#include <Wire.h>
 #include "DFRobot_ORP_PRO.h"
-#include <Wire.h> 
- 
-// Pin Definitions
-#define TDS_PIN A0
-#define PH_PIN A1
-#define DO_PIN A2
-#define EC_PIN A3
-#define TE_PIN A4
-#define ORP_PIN A5
-int TurbiditySensorPin = A0;
+#include "DFRobot_ECPRO.h"
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+// Pin and constants for TDS sensor
+#define TdsSensorPin A1
+#define VREF 5.0              // Analog reference voltage (Volt) of the ADC
+#define SCOUNT  30            // Sum of sample points
+int analogBuffer[SCOUNT];     // Store the analog value in the array, read from ADC
+int analogBufferTemp[SCOUNT];
+int analogBufferIndex = 0;
+int copyIndex = 0;
+float averageVoltage = 0;
+float tdsValue = 0;
+float temperature = 16;       // Current temperature for compensation
+
+// Pin and constants for turbidity sensor
+int TurbiditySensorPin = A5;
 float TurbiditySensorVoltage;
 float TurbidityInNtu;
 
-// Sensor Objects
-GravityTDS gravityTds;
-DFRobot_PH ph;
+// Pin and constants for ORP sensor
+#define PIN_ORP A2
+#define ADC_RES 1024
+#define V_REF 5000
+unsigned int ADC_voltage;
+DFRobot_ORP_PRO ORP(-14);  // Set reference voltage (mV)
+
+// Pin and constants for EC sensor
+#define EC_PIN A0
+#define TE_PIN A3
 DFRobot_ECPRO ec;
 DFRobot_ECPRO_PT1000 ecpt;
-DFRobot_ORP_PRO ORP(0); // Default reference voltage, to be calibrated
 
-// Global Sensor Variables
-float temperature = 25.0;
-float tdsValue = 0;
-float phValue = 0;
-float doValue = 0;
-float conductivity = 0;
-float orpValue = 0;
+uint16_t EC_Voltage, TE_Voltage;
+float Conductivity, Temp;
 
-// Calibration Mode Flag
-bool isCalibrationMode = false;
+// Pin and constants for DO and temperature sensors
+#define DO_PIN A6
+#define ONE_WIRE_BUS 2    // Pin where the DS18B20 data wire is connected
 
-// ORP Sensor Calibration Function
-void calibrateORPSensor() {
-  Serial.println("ORP Sensor Calibration");
-  Serial.println("====================");
-  
-  // Zero Calibration Process
-  Serial.println("1. Zero Calibration Steps:");
-  Serial.println("   - Disconnect ORP probe");
-   Serial.println("   - Short-circuit S+ and S- pins");
-   Serial.println("   - Measuring reference voltage...");
-   
-   // Measure reference voltage
-   long referenceVoltage = 0;
-   int numReadings = 50;
-   
-   for (int i = 0; i < numReadings; i++) {
-     referenceVoltage += ((long)analogRead(ORP_PIN) * 5000 + ADC_RES / 2) / ADC_RES;
-     delay(50);
-   }
-   referenceVoltage /= numReadings;
-   
-   Serial.print("Measured Reference Voltage: ");
-   Serial.print(referenceVoltage);
-   Serial.println(" mV");
-   
-   // Prompt user to confirm calibration
-   Serial.println("\nDo you want to use this reference voltage?");
-   Serial.println("Enter 'Y' to confirm, 'N' to cancel");
-   
-   while (!Serial.available()) {
-     delay(100);
-   }
-   
-   char response = Serial.read();
-   if (response == 'Y' || response == 'y') {
-     // Update ORP object with new reference voltage
-     ORP = DFRobot_ORP_PRO(referenceVoltage - 2480);
-     
-     Serial.print("ORP Sensor Calibrated. New Reference Voltage: ");
-     Serial.print(ORP.getCalibration());
-     Serial.println(" mV");
-   } else {
-     Serial.println("ORP Calibration Cancelled");
-   }
-}
-// Calibration Function
-void performSensorCalibration() {
-  Serial.println("Entering Sensor Calibration Mode");
-  
-  // EC Sensor Calibration
-  Serial.println("EC Sensor Calibration:");
-  Serial.println("Immerse the probe in the calibration solution");
-  Serial.println("Enter 'C + conductivity value' (e.g., C 1413)");
-  
-  // Wait for user input
-  while (!Serial.available()) {
-    delay(100);
-  }
-  
-  String args = Serial.readStringUntil('\n');
-  if (args[0] == 'C') {
-    args.remove(0, 2);
-    float calSolution = args.toFloat();
-    
-    // Measure EC Voltage
-    uint16_t EC_Voltage = (uint32_t)analogRead(EC_PIN) * 5000 / 1024;
-    
-    // Calibrate EC
-    float newCalibrationK = ec.calibrate(EC_Voltage, calSolution);
-    ec.setCalibration(newCalibrationK);
-    
-    Serial.print("Calibration Solution: ");
-    Serial.println(calSolution);
-    Serial.print("New Calibration K: ");
-    Serial.println(newCalibrationK, 6);
-  }
-  
-  // pH Sensor Calibration
-  Serial.println("\npH Sensor Calibration:");
-  Serial.println("Use standard pH buffer solutions (4.0, 7.0, 10.0)");
-  Serial.println("Enter 'P + pH value' (e.g., P 7.0)");
-  
-  // Wait for user input
-  while (!Serial.available()) {
-    delay(100);
-  }
-  
-  args = Serial.readStringUntil('\n');
-  if (args[0] == 'P') {
-    args.remove(0, 2);
-    float calPH = args.toFloat();
-    
-    // Measure pH Voltage
-    float voltage = analogRead(PH_PIN) / 1024.0 * 5000;
-    
-    // Calibrate pH (you may need to implement a specific calibration method)
-    ph.calibration(voltage, temperature);
-    
-    Serial.print("Calibration pH: ");
-    Serial.println(calPH);
-  }
-  
-  // DO Sensor Calibration (Simple Single-Point Calibration)
-  Serial.println("\nDO Sensor Calibration:");
-  Serial.println("Ensure sensor is in saturated water");
-  Serial.println("Press any key to continue");
-  
-  while (!Serial.available()) {
-    delay(100);
-  }
-  
-  // Perform DO calibration measurement
-  uint16_t ADC_Raw = analogRead(DO_PIN);
-  uint16_t ADC_Voltage = uint32_t(VREF) * ADC_Raw / ADC_RES;
-  
-  Serial.print("DO Calibration Voltage: ");
-  Serial.println(ADC_Voltage);
+// Calibration for DO sensor
+#define V_OFFSET (0)         // Adjust with your sensor's offset value (in mV)
+#define V_SLOPE (10.0)       // Adjust with your sensor's slope value (in mV per mg/L)
+#define TEMP_COEFFICIENT (0.02) // Temperature correction factor for DO
 
- // Add ORP Sensor Calibration
-  Serial.println("\nORP Sensor Calibration:");
-  calibrateORPSensor();
-  
-  Serial.println("Calibration Complete. Switching to Operation Mode.");
-  isCalibrationMode = false;
-}
+// Single-point calibration Mode=0
+// Two-point calibration Mode=1
+#define TWO_POINT_CALIBRATION 0
 
-// Operation Function for Normal Sensor Reading
-void performSensorOperation() {
-  // Temperature Measurement
-  uint16_t TE_Voltage = (uint32_t)analogRead(TE_PIN) * 5000 / 1024;
-  temperature = ecpt.convVoltagetoTemperature_C((float)TE_Voltage/1000);
-  
-  // TDS Measurement
-  gravityTds.setTemperature(temperature);
-  gravityTds.update();
-  tdsValue = gravityTds.getTdsValue();
-  
-  // pH Measurement
-  float voltage = analogRead(PH_PIN) / 1024.0 * 5000;
-  phValue = ph.readPH(voltage, temperature);
-  
-  // DO Measurement
-  uint16_t ADC_Raw = analogRead(DO_PIN);
-  uint16_t ADC_Voltage = uint32_t(VREF) * ADC_Raw / ADC_RES;
-  doValue = readDO(ADC_Voltage, (uint8_t)temperature);
-  
-  // EC Measurement
-  uint16_t EC_Voltage = (uint32_t)analogRead(EC_PIN) * 5000 / 1024;
-  conductivity = ec.getEC_us_cm(EC_Voltage, temperature);
+// Single point calibration values
+#define CAL1_V (1600) // mv
+#define CAL1_T (25)   // ℃
 
-    // ORP Measurement
-  unsigned int ADC_voltage = ((unsigned long)analogRead(ORP_PIN) * 5000 + 1024 / 2) / 1024;
-  orpValue = ORP.getORP(ADC_voltage);
-
-//Turbidity data read
-  getTurbidityData();
- // Create Data Packet (include ORP value)
-  String dataPacket = "T:" + String(temperature, 2) +
-                      "|P:" + String(phValue, 2) +
-                      "|TD:" + String(tdsValue, 0) +
-                      "|TU:" + String(TurbidityInNtu) +
-                      "|D:" + String(doValue, 2) +
-                      "|O:" + String(orpValue, 2) + // Add ORP value
-                      "|E:" + String(conductivity, 2) +
-                      
-                      "\n";
-  
-  // Send Data
-  Serial3.print(dataPacket);
-  Serial.println(dataPacket);
-}
-void getTurbidityData(){
-   TurbiditySensorVoltage = 0;
-    for(int i=0; i<800; i++)
-    {
-        TurbiditySensorVoltage += ((float)analogRead(TurbiditySensorPin)/1023)*5;
-    }
-    TurbiditySensorVoltage = TurbiditySensorVoltage/800;
-    TurbiditySensorVoltage = round_to_dpFor_Turb(TurbiditySensorVoltage,2);
-    if(TurbiditySensorVoltage < 2.5){
-      TurbidityInNtu = 3000;
-    }else{
-      TurbidityInNtu = -1120.4*square(TurbiditySensorVoltage)+5742.3*TurbiditySensorVoltage-4353.8; 
-    }
-    delay(10);
-}
-// DO Sensor Reading Function (from original DO code)
-int16_t readDO(uint32_t voltage_mv, uint8_t temperature_c) {
-  #if TWO_POINT_CALIBRATION == 0
-    uint16_t V_saturation = (uint32_t)131 + (uint32_t)35 * temperature_c - (uint32_t)25 * 35;
-    return (voltage_mv * DO_Table[temperature_c] / V_saturation);
-  #else
-    uint16_t V_saturation = (int16_t)((int8_t)temperature_c - 15) * ((uint16_t)131 - 1300) / (25 - 15) + 1300;
-    return (voltage_mv * DO_Table[temperature_c] / V_saturation);
-  #endif
-}
-
-void setup() {
-  Serial.begin(9600);
-  Serial3.begin(9600);
-  
-  // Sensor Initializations
-  gravityTds.setPin(TDS_PIN);
-  gravityTds.setAref(5.0);
-  gravityTds.setAdcRange(1024);
-  gravityTds.begin();
-  
-  ph.begin();
-  
-  ec.setCalibration(1);
-}
-
-void loop() {
-  // Check for calibration command
-  if (Serial.available()) {
-    char cmd = Serial.read();
-    if (cmd == 'C') {
-      isCalibrationMode = true;
-    }
-  }
-  
-  // Run either calibration or operation mode
-  if (isCalibrationMode) {
-    performSensorCalibration();
-  } else {
-    performSensorOperation();
-  }
-  
-  delay(1000);
-}
-
-// DO Sensor Lookup Table (from original DO code)
 const uint16_t DO_Table[41] = {
     14460, 14220, 13820, 13440, 13090, 12740, 12420, 12110, 11810, 11530,
     11260, 11010, 10770, 10530, 10300, 10080, 9860, 9660, 9460, 9270,
     9080, 8900, 8730, 8570, 8410, 8250, 8110, 7960, 7820, 7690,
-    7560, 7430, 7300, 7180, 7070, 6950, 6840, 6730, 6630, 6530, 6410
-};
+    7560, 7430, 7300, 7180, 7070, 6950, 6840, 6730, 6630, 6530, 6410};
 
-float round_to_dpFor_Turb( float in_value, int decimal_place )
-{
-  float multiplierForTurbidity = powf( 10.0f, decimal_place );
-  in_value = roundf( in_value * multiplierForTurbidity ) / multiplierForTurbidity;
+// Create an instance of the OneWire and DallasTemperature objects
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+
+uint8_t Temperaturet;
+uint16_t ADC_Raw;
+uint16_t ADC_Voltage;
+uint16_t DO;
+
+// Median filtering algorithm for TDS sensor
+int getMedianNum(int bArray[], int iFilterLen){
+  int bTab[iFilterLen];
+  for (byte i = 0; i < iFilterLen; i++) {
+    bTab[i] = bArray[i];
+  }
+  int i, j, bTemp;
+  for (j = 0; j < iFilterLen - 1; j++) {
+    for (i = 0; i < iFilterLen - j - 1; i++) {
+      if (bTab[i] > bTab[i + 1]) {
+        bTemp = bTab[i];
+        bTab[i] = bTab[i + 1];
+        bTab[i + 1] = bTemp;
+      }
+    }
+  }
+  return bTab[iFilterLen / 2];  // Return the median value
+}
+
+// Function to round the turbidity value to 2 decimal places
+float round_to_dpFor_Turb(float in_value, int decimal_place) {
+  float multiplierForTurbidity = powf(10.0f, decimal_place);
+  in_value = roundf(in_value * multiplierForTurbidity) / multiplierForTurbidity;
   return in_value;
+}
+
+void setup() {
+  Serial.begin(9600);         // Debugging
+  Serial3.begin(9600);        // Communication with ESP8266 at a stable baud rate
+  Serial.begin(115200);       // ORP sensor communication
+  Serial.print("calibration is: ");
+  Serial.print(ORP.getCalibration());
+  Serial.println(" mV");
+
+  // Initialize the temperature sensor
+  sensors.begin();
+}
+
+void loop() {
+  // Read the TDS sensor
+  for (int i = 0; i < SCOUNT; i++) {
+    analogBuffer[i] = analogRead(TdsSensorPin);
+    delay(10); // Give some time between readings
+  }
+
+  // Apply median filter to the sensor readings
+  tdsValue = getMedianNum(analogBuffer, SCOUNT);
+
+  // Convert the raw sensor value to TDS (assuming 5V reference voltage)
+  averageVoltage = tdsValue * VREF / 1024.0;
+  tdsValue = (133.42 * pow(averageVoltage, 3) - 255.86 * pow(averageVoltage, 2) + 857.39 * averageVoltage) * 0.5;  // Conversion to TDS value
+
+  // Read the turbidity sensor
+  TurbiditySensorVoltage = 0;
+  for (int i = 0; i < 800; i++) {
+    TurbiditySensorVoltage += ((float)analogRead(TurbiditySensorPin) / 1023) * 5;
+  }
+  TurbiditySensorVoltage = TurbiditySensorVoltage / 800;
+  TurbiditySensorVoltage = round_to_dpFor_Turb(TurbiditySensorVoltage, 2);
+  
+  if (TurbiditySensorVoltage < 2.5) {
+    TurbidityInNtu = 3000;
+  } else {
+    TurbidityInNtu = -1120.4 * square(TurbiditySensorVoltage) + 5742.3 * TurbiditySensorVoltage - 4353.8;
+  }
+
+  // Read the ORP sensor
+  ADC_voltage = ((unsigned long)analogRead(PIN_ORP) * V_REF + ADC_RES / 2) / ADC_RES;
+  Serial.print("ORP value is: ");
+  Serial.print(ORP.getORP(ADC_voltage));
+  Serial.println(" mV");
+
+  // Read the EC sensor
+  EC_Voltage = (uint32_t)analogRead(EC_PIN) * 5000 / 1024;
+  TE_Voltage = (uint32_t)analogRead(TE_PIN) * 5000 / 1024;
+
+  Temp = ecpt.convVoltagetoTemperature_C((float)TE_Voltage / 1000);
+  Conductivity = ec.getEC_us_cm(EC_Voltage, Temp);
+
+  // Read the temperature and DO sensor
+  sensors.requestTemperatures(); // Get temperature from DS18B20
+  float realTemperature = sensors.getTempCByIndex(0);  // Temperature in Celsius
+  Serial.print("Temperature: ");
+  Serial.print(realTemperature);
+  Serial.print(" °C\t");
+
+  // Read the DO sensor
+  DO = analogRead(DO_PIN);
+  float DO_voltage = ((float)DO * V_REF) / ADC_RES;
+  int DO_concentration = readDO(DO_voltage, realTemperature);  // Calculate DO concentration
+  
+  Serial.print("DO: ");
+  Serial.print(DO_concentration);
+  Serial.println(" mg/L");
+
+  // Output data
+  String dataPacket = "T:" + String(realTemperature) +
+                      "|P:" + String(tdsValue) +
+                      "|TD:" + String(tdsValue) +
+                      "|TU:" + String(TurbidityInNtu) +
+                      "|D:" + String(DO_concentration) +
+                      "|O:" + String(ORP.getORP(ADC_voltage)) +
+                      "|E:" + String(Conductivity) +
+                      "\n";
+
+  // Send data packet to ESP8266
+  Serial3.print(dataPacket);
+
+  // Debugging output
+  Serial.println(dataPacket);
+
+  // Wait 1 second before sending the next packet
+  delay(1000);
+}
+
+// Function to calculate Dissolved Oxygen
+int readDO(uint32_t voltage_mv, uint8_t temperature_c) {
+  float DO_concentration = ((voltage_mv - V_OFFSET) / V_SLOPE);
+  float temp_correction = 1 + (TEMP_COEFFICIENT * (temperature_c - 25));  // Adjust based on temperature
+  return int(DO_concentration * temp_correction);
 }

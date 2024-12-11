@@ -1,32 +1,50 @@
-#include "DFRobot_PH.h"
+#include <Wire.h>
 
-#define PH_PIN A8
-float voltage,phValue,temperature = 25;
-DFRobot_PH ph;
+const int pHSensorPin = A0; // Pin connected to the pH sensor's analog output
+float pHValue = 0.0;         // Variable to store pH value
+float calibrationBuffer[2];  // Array to store calibration values (low and high points)
 
-void setup()
-{
-    Serial.begin(115200);  
-    ph.begin();
+void setup() {
+  // Start serial communication
+  Serial.begin(9600);
+  Serial.println("DFRobot Gravity pH Meter Pro V2 - Data Logging");
+  Serial.println("Connecting to pH sensor...");
+
+  // Default calibration values (adjust after calibration)
+  calibrationBuffer[0] = 4.0;  // pH 4.0 calibration value
+  calibrationBuffer[1] = 7.0;  // pH 7.0 calibration value
+
+  delay(2000);
+  Serial.println("Ready to read pH value.");
+  Serial.println("Reading pH...");
 }
 
-void loop()
-{
-    static unsigned long timepoint = millis();
-    if(millis()-timepoint>1000U){                  //time interval: 1s
-        timepoint = millis();
-        //temperature = readTemperature();         // read your temperature sensor to execute temperature compensation
-        voltage = analogRead(PH_PIN)/1024.0*5000;  // read the voltage
-        phValue = ph.readPH(voltage,temperature);  // convert voltage to pH with temperature compensation
-        Serial.print("temperature:");
-        Serial.print(temperature,1);
-        Serial.print("^C  pH:");
-        Serial.println(phValue,2);
-    }
-    ph.calibration(voltage,temperature);           // calibration process by Serail CMD
+void loop() {
+  // Read and convert raw sensor value
+  float rawSensorValue = readRawPH();
+
+  // Convert raw sensor value to pH using calibration values
+  pHValue = convertToPH(rawSensorValue);
+
+  // Print pH value to Serial Monitor
+  Serial.print("Current pH: ");
+  Serial.println(pHValue, 2);
+
+  delay(1000);  // Delay for 1 second before reading again
 }
 
-float readTemperature()
-{
-  //add your code here to get the temperature from your temperature sensor
+float readRawPH() {
+  int rawValue = analogRead(pHSensorPin);
+  float voltage = rawValue * (5.0 / 1023.0);  // Convert raw value to voltage (assuming 5V reference)
+  return voltage;
+}
+
+float convertToPH(float rawVoltage) {
+  // Assume a linear relationship between voltage and pH value (this needs to be adjusted according to your sensor's characteristics)
+  float slope = (calibrationBuffer[1] - calibrationBuffer[0]) / (5.0 - 0.0);  // Slope calculated from known calibration values
+  float intercept = calibrationBuffer[0] - slope * 0.0;  // Intercept calculated using pH 0.0 at 0.0V
+  
+  // Calculate pH based on voltage and calibration values
+  float pH = slope * rawVoltage + intercept;
+  return pH;
 }
